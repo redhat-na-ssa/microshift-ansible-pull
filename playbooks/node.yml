@@ -1,0 +1,13 @@
+---
+- hosts: node
+  become: true
+  tasks:
+  - name: Open firewall ports for the OpenShift Router
+    ansible.posix.firewalld:
+      state: enabled
+      service: '{{ item }}'
+      permanent: true
+      immediate: true
+    loop:
+    - http
+    - https

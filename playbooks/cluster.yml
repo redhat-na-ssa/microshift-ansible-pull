@@ -1,0 +1,24 @@
+---
+- hosts: cluster
+  tasks:
+  - name: Create the namespace
+    redhat.openshift.k8s:
+      state: present
+      api_version: v1
+      kind: Namespace
+      name: hello
+
+  - name: Deploy the application
+    redhat.openshift.k8s:
+      state: present
+      namespace: hello
+      src: '{{ playbook_dir }}/../app/{{ item }}'
+    loop:
+    - 00-deployment.yml
+    - 05-svc.yml
+    - 10-route.yml
+
+  - name: Update the CronJob for the next run
+    redhat.openshift.k8s:
+      state: present
+      src: '{{ playbook_dir }}/../deploy/cronjob.yml'

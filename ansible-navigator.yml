@@ -1,0 +1,17 @@
+---
+ansible-navigator:
+  ansible:
+    config:
+      path: ansible.cfg
+    inventory:
+      entries:
+      - ./inventory
+  execution-environment:
+    enabled: true
+    image: registry.redhat.io/ansible-automation-platform-23/ee-supported-rhel8:1.0.0
+  logging:
+    append: true
+    file: ansible-navigator.log
+  mode: stdout
+  playbook-artifact:
+    enable: false

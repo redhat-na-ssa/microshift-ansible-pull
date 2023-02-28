@@ -1,0 +1,5 @@
+[cluster]
+microshift ansible_connection=local ansible_python_interpreter=python3
+
+[node]
+10.1.1.11 ansible_connection=ssh ansible_user=redhat

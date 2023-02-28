@@ -1,0 +1,259 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: microshift-config
+  labels:
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/audit-version: v1.24
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/warn-version: v1.24
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: microshift-config
+  namespace: microshift-config
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: microshift-config-privileged
+  namespace: microshift-config
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+- kind: ServiceAccount
+  name: microshift-config
+  namespace: microshift-config
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: microshift-config-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: microshift-config
+  namespace: microshift-config
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: runner-home
+  namespace: microshift-config
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  volumeMode: Filesystem
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: microshift-config-data
+  namespace: microshift-config
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  volumeMode: Filesystem
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: microshift-config-env
+  namespace: microshift-config
+data:
+  ANSIBLE_PULL_REPO_CONN: https://github.com/redhat-na-ssa/microshift-ansible-pull.git
+  ANSIBLE_PULL_CHECKOUT: main
+  ANSIBLE_PULL_NODE_PLAYBOOKS: playbooks/node.yml
+  ANSIBLE_PULL_CLUSTER_PLAYBOOKS: playbooks/cluster.yml
+  ANSIBLE_VAULT_PASSWORD_FILE: /tmp/secrets/.vault
+  ANSIBLE_CONFIG: /runner/project/ansible.cfg
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: microshift-ansible-pull
+  namespace: microshift-config
+data:
+  ansible-pull.sh: |
+    #!/bin/bash
+    set -exo pipefail
+
+    # Identify elements of the requested repo to pull
+    git_extract='^((https?|ssh|git|ftps?):\/\/)?(([^\/@]+)@)?([^\/]+)[\/:]([^\/:]+)\/(.+).git\/?$'
+    if [[ "${ANSIBLE_PULL_REPO_CONN}" =~ $git_extract ]]; then
+      ANSIBLE_PULL_SCHEME="${BASH_REMATCH[2]:-ssh}"
+      ANSIBLE_PULL_USER="${BASH_REMATCH[4]}"
+      ANSIBLE_PULL_HOST_PORT="${BASH_REMATCH[5]}"
+      ANSIBLE_PULL_ORG="${BASH_REMATCH[6]}"
+      ANSIBLE_PULL_REPO="${BASH_REMATCH[7]}"
+    fi
+    IFS=: read -r ANSIBLE_PULL_HOST ANSIBLE_PULL_PORT <<< "$ANSIBLE_PULL_HOST_PORT"
+
+    # Manage SSH host keys if necessary
+    if [ "$ANSIBLE_PULL_SCHEME" = "ssh" ]; then
+      if [ -z "$(grep "^${ANSIBLE_PULL_HOST}" ~/.ssh/known_hosts)" ]; then
+        mkdir -p ~/.ssh
+        portline="$(if [ -n "$ANSIBLE_PULL_PORT" ]; then echo -p "$ANSIBLE_PULL_PORT"; fi)"
+        ssh-keyscan "$portline" "${ANSIBLE_PULL_HOST}" | tee -a ~/.ssh/known_hosts
+        chmod -R u=rwX,g=,o= ~/.ssh
+      fi
+    fi
+
+    # Set port values based on defaults for connection checks
+    if [ -z "$ANSIBLE_PULL_PORT" ]; then
+      if [ "$ANSIBLE_PULL_SCHEME" = http ]; then
+        ANSIBLE_PULL_PORT=80
+      elif [ "$ANSIBLE_PULL_SCHEME" = https ]; then
+        ANSIBLE_PULL_PORT=443
+      elif [ "$ANSIBLE_PULL_SCHEME" = ssh ]; then
+        ANSIBLE_PULL_PORT=22
+      elif [ "$ANSIBLE_PULL_SCHEME" = git ]; then
+        ANSIBLE_PULL_PORT=9418
+      fi
+    fi
+
+    connection_up () {
+      # Check if we can reach the TCP port of the git endpoint at all
+      timeout 5 bash -c "</dev/tcp/$ANSIBLE_PULL_HOST/$ANSIBLE_PULL_PORT" && return 0 || return 1
+    }
+    clone () {
+      # Clone only the HEAD of a single branch of our repository
+      git clone -b "${ANSIBLE_PULL_CHECKOUT}" --depth=1 --recurse-submodules "${ANSIBLE_PULL_REPO_CONN}" .
+    }
+    cleanup () {
+      # Remove everything in the pwd
+      find . -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
+    }
+
+    cd /runner/project
+    if [ -d "/runner/project/.git" ]; then
+      if connection_up; then
+        # Ensure we have information on the remote branch
+        git remote set-branches --add origin "${ANSIBLE_PULL_CHECKOUT}"
+        git fetch
+        # Check out the remote branch
+        git checkout "${ANSIBLE_PULL_CHECKOUT}"
+        # Ensure our copy of the branch is up to date
+        git pull || { cleanup && clone ; }
+      fi
+    else
+      # Download a new copy
+      clone
+    fi
+
+    # Ensure that ansible-runner inventory is prepared, if it's included in the repo
+    if [ -d /runner/project/inventory ]; then
+      if [ ! -L /runner/inventory ]; then
+        rm -rf /runner/inventory
+        ln -s /runner/project/inventory /runner/inventory
+      fi
+    else
+      if [ -L /runner/inventory ]; then
+        rm -f /runner/inventory
+      fi
+    fi
+    mkdir -p /runner/env
+
+    # Run playbooks against the RHDE host
+    for playbook in $ANSIBLE_PULL_NODE_PLAYBOOKS; do
+      RUNNER_PLAYBOOK="$playbook" /usr/bin/entrypoint ansible-runner run /runner
+    done
+
+    # Run playbooks against the MicroShift k8s API
+    for playbook in $ANSIBLE_PULL_CLUSTER_PLAYBOOKS; do
+      RUNNER_PLAYBOOK="$playbook" /usr/bin/entrypoint ansible-runner run /runner
+    done
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: microshift-config
+  namespace: microshift-config
+spec:
+  schedule: "15 * * * *"
+  suspend: false
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    metadata:
+      creationTimestamp: null
+    spec:
+      template:
+        metadata:
+          creationTimestamp: null
+        spec:
+          restartPolicy: Never
+          serviceAccount: microshift-config
+          serviceAccountName: microshift-config
+          dnsPolicy: ClusterFirst
+          schedulerName: default-scheduler
+          terminationGracePeriodSeconds: 30
+          containers:
+            - name: ansible-pull
+              image: registry.redhat.io/ansible-automation-platform-23/ee-supported-rhel8:1.0.0
+              imagePullPolicy: IfNotPresent
+              command: ["/var/lib/microshift-config/ansible-pull.sh"]
+              args: []
+              env:
+              - name: HOME
+                value: /root
+              envFrom:
+              - configMapRef:
+                  name: microshift-config-env
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+                allowPrivilegeEscalation: false
+                runAsNonRoot: false
+                seccompProfile:
+                  type: RuntimeDefault
+                capabilities:
+                  drop:
+                  - ALL
+              volumeMounts:
+              - name: vault-key
+                mountPath: /tmp/secrets
+              - name: data
+                mountPath: /runner/project
+              - name: ansible-pull
+                mountPath: /var/lib/microshift-config
+              - name: home
+                mountPath: /root
+              resources:
+                limits:
+                  cpu: '1'
+                  memory: '1Gi'
+                requests:
+                  cpu: 500m
+                  memory: '256Mi'
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+          volumes:
+          - name: vault-key
+            secret:
+              defaultMode: 256
+              secretName: vault-key
+          - name: data
+            persistentVolumeClaim:
+              claimName: microshift-config-data
+          - name: ansible-pull
+            configMap:
+              defaultMode: 360
+              name: microshift-ansible-pull
+          - name: home
+            persistentVolumeClaim:
+              claimName: runner-home

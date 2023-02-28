@@ -1,0 +1,2 @@
+---
+ansible_ssh_pass: '{{ vaulted_ansible_ssh_pass }}'
