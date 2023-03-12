@@ -76,8 +76,6 @@ metadata:
 data:
   ANSIBLE_PULL_REPO_CONN: https://github.com/redhat-na-ssa/microshift-ansible-pull.git
   ANSIBLE_PULL_CHECKOUT: main
-  ANSIBLE_PULL_NODE_PLAYBOOKS: playbooks/node.yml
-  ANSIBLE_PULL_CLUSTER_PLAYBOOKS: playbooks/cluster.yml
   ANSIBLE_VAULT_PASSWORD_FILE: /tmp/secrets/.vault
   ANSIBLE_CONFIG: /runner/project/ansible.cfg
 ---
@@ -167,13 +165,8 @@ data:
     fi
     mkdir -p /runner/env
 
-    # Run playbooks against the RHDE host
-    for playbook in $ANSIBLE_PULL_NODE_PLAYBOOKS; do
-      RUNNER_PLAYBOOK="$playbook" /usr/bin/entrypoint ansible-runner run /runner
-    done
-
-    # Run playbooks against the MicroShift k8s API
-    for playbook in $ANSIBLE_PULL_CLUSTER_PLAYBOOKS; do
+    # Run playbooks against the RHDE host and Kubernetes API
+    for playbook in playbooks/*.yml; do
       RUNNER_PLAYBOOK="$playbook" /usr/bin/entrypoint ansible-runner run /runner
     done
 ---

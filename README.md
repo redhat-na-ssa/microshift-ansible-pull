@@ -46,8 +46,8 @@ This repository serves as a demonstration of how one might use supported Red Hat
   - Place the passphrase you used to encrypt your vault somewhere on your local system, such as `/tmp/secrets/.vault` or, optionally, anywhere you like and will remember in the following commands
 6. You can now use `ansible-navigator` to run playbooks leveraging the supported AAP 2.3 EE. You need to mount a few files into the EE on execution, because the configuration doesn't support some things that make it simpler to define there. Supposing you use `/tmp/secrets/.vault` for your vault passphrase, and your MicroShift `KUBECONFIG` is in `~/.kube/config`, you could run both playbooks serially like this:
   ```sh
-  for playbook in cluster node; do
-      ansible-navigator run playbooks/$playbook.yml --eev ~/.kube/config:/home/runner/.kube/config:Z --eev /tmp/secrets/.vault:/tmp/secrets/.vault:Z
+  for playbook in playbooks/*.yml; do
+      ansible-navigator run $playbook --eev ~/.kube/config:/home/runner/.kube/config:Z --eev /tmp/secrets/.vault:/tmp/secrets/.vault:Z
   done
   ```
 7. Observe that, after running the cluster playbook, a CronJob was created on the cluster to continuously enforce reconciliation with your forked repository. You can experiment with updating the defintions in `app/` and manually applying those updated definitions either with `ansible-navigator` or creating a fresh `Job` from your `CronJob` with a command like the following:
