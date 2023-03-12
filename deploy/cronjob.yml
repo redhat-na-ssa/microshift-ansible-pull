@@ -76,6 +76,7 @@ metadata:
 data:
   ANSIBLE_PULL_REPO_CONN: https://github.com/redhat-na-ssa/microshift-ansible-pull.git
   ANSIBLE_PULL_CHECKOUT: main
+  ANSIBLE_PULL_MANAGE_HOSTS: microshift,microshift_node
   ANSIBLE_VAULT_PASSWORD_FILE: /tmp/secrets/.vault
   ANSIBLE_CONFIG: /runner/project/ansible.cfg
 ---
@@ -166,6 +167,7 @@ data:
     mkdir -p /runner/env
 
     # Run playbooks against the RHDE host and Kubernetes API
+    echo "--limit $ANSIBLE_PULL_MANAGE_HOSTS " > /runner/env/cmdline
     for playbook in playbooks/*.yml; do
       RUNNER_PLAYBOOK="$playbook" /usr/bin/entrypoint ansible-runner run /runner
     done

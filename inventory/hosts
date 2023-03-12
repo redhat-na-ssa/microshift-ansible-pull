@@ -1,5 +1,7 @@
 [cluster]
 microshift ansible_connection=local ansible_python_interpreter=python3
+some_other_microshift ansible_connection=local ansible_python_interpreter=python3
 
 [node]
-10.1.1.11 ansible_connection=ssh ansible_user=redhat
+microshift_node ansible_host=10.1.1.11 ansible_connection=ssh ansible_user=redhat
+some_other_microshift_node ansible_host=86.75.30.9 ansible_connection=ssh ansible_user=redhat
