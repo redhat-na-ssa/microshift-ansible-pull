@@ -31,6 +31,7 @@ This repository serves as a demonstration of how one might use supported Red Hat
   - From the repository root, in the same shell where we defined the `ansible-vault` function before, run the following to encrypt your new vault variables using a password of your choice:
     ```sh
     vault_pass="a totally new password" # you can change this if you like
+    echo "$vault_pass" > /tmp/secrets/.vault
     ansible-vault encrypt inventory/group_vars/node/vault.yml
     ```
   - Load the secret into your MicroShift cluster for consumption by the `CronJob` before we move on from this terminal now. If you can run `oc get nodes` and see your MicroShift cluster nodes, run something like the following from the same shell where we already set `vault_pass`:
