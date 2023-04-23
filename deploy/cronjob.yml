@@ -4,6 +4,8 @@ kind: Namespace
 metadata:
   name: microshift-config
   labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: v1.24
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/audit-version: v1.24
     pod-security.kubernetes.io/warn: privileged
